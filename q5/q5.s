@@ -1,111 +1,85 @@
 .section .data
-filename: .asciz "input.txt"   # file we will check
-yes_msg:  .asciz "Yes\n"       # printed if palindrome
-no_msg:   .asciz "No\n"        # printed if not palindrome
+one_msg:  .asciz "1\n"          # output if palindrome
+zero_msg: .asciz "0\n"          # output if not palindrome
 
 .section .bss
-front_char:  .space 1          # stores character from start
-back_char:   .space 1          # stores character from end
+buf: .space 10004               # buffer: max 10^4 chars + newline + null
 
 .section .text
 .global _start
 
 _start:
-    # Open file in read-only mode 
-    # openat(AT_FDCWD, filename, O_RDONLY)
-    li a7, 56
-    li a0, -100
-    la a1, filename
-    li a2, 0
+    # Read entire input from stdin into buf 
+    # read(0, buf, 10004)
+    li   a7, 63
+    li   a0, 0                  # fd = stdin
+    la   a1, buf
+    li   a2, 10004
     ecall
-    mv s0, a0                  # s0 = file descriptor
+    # a0 = number of bytes actually read (n_read)
+    blez a0, palindrome         # empty input → palindrome
 
-    bltz s0, not_palindrome    # if open fails → print No
+    #  Strip trailing newline 
+    mv   s1, a0                 # s1 = current length
+strip_nl:
+    beqz s1, palindrome         # length became 0
+    la   t0, buf
+    add  t1, t0, s1
+    addi t1, t1, -1             # t1 → last byte
+    lb   t2, 0(t1)
+    li   t3, 10                 # '\n'
+    beq  t2, t3, do_strip
+    li   t3, 13                 # '\r'
+    beq  t2, t3, do_strip
+    j    done_strip
+do_strip:
+    addi s1, s1, -1
+    j    strip_nl
+done_strip:
 
-    # Get file size (n) 
-    # lseek(fd, 0, SEEK_END)
-    li a7, 62
-    mv a0, s0
-    li a1, 0
-    li a2, 2                   # SEEK_END
-    ecall
-    mv s1, a0                  # s1 = file length
+    # Edge case: 0 or 1 character → always a palindrome 
+    li   t0, 2
+    blt  s1, t0, palindrome
 
-    # If file has 0 or 1 character → palindrome
-    li t0, 2
-    blt s1, t0, palindrome
-
-    # Initialize two pointers
-    li t1, 0                   # left index = 0
-    addi t2, s1, -1            # right index = n - 1
+    #  Two-pointer palindrome check 
+    li   t1, 0                  # left  index
+    addi t2, s1, -1             # right index
+    la   s0, buf                # base address of buffer
 
 check_loop:
-    # Stop when pointers meet or cross
-    bge t1, t2, palindrome
+    bge  t1, t2, palindrome     # pointers crossed → palindrome
 
-    # Read character from left side 
-    # Move file pointer to position = left index
-    li a7, 62
-    mv a0, s0
-    mv a1, t1
-    li a2, 0                   # SEEK_SET
-    ecall
+    add  t3, s0, t1             # address of buf[left]
+    lb   t4, 0(t3)              # left  character
 
-    # Read 1 byte into front_char
-    li a7, 63
-    mv a0, s0
-    la a1, front_char
-    li a2, 1
-    ecall
+    add  t5, s0, t2             # address of buf[right]
+    lb   t6, 0(t5)              # right character
 
-    # Read character from right side 
-    # Move file pointer to position = right index
-    li a7, 62
-    mv a0, s0
-    mv a1, t2
-    li a2, 0
-    ecall
+    bne  t4, t6, not_palindrome # mismatch → not palindrome
 
-    # Read 1 byte into back_char
-    li a7, 63
-    mv a0, s0
-    la a1, back_char
-    li a2, 1
-    ecall
+    addi t1, t1, 1              # left++
+    addi t2, t2, -1             # right--
+    j    check_loop
 
-    # Compare both characters 
-    la t3, front_char
-    lb t4, 0(t3)
-
-    la t5, back_char
-    lb t6, 0(t5)
-
-    bne t4, t6, not_palindrome   # mismatch → not palindrome
-
-    # Move inward
-    addi t1, t1, 1               # left++
-    addi t2, t2, -1              # right--
-    j check_loop
-
-#If palindrome 
+#  Output "1\n" 
 palindrome:
-    li a7, 64                   # write syscall
-    li a0, 1                    # stdout
-    la a1, yes_msg
-    li a2, 4
+    li   a7, 64                 # write syscall
+    li   a0, 1                  # stdout
+    la   a1, one_msg
+    li   a2, 2                  # length of "1\n"
     ecall
-    j exit
+    j    exit
 
-#If not palindrome
+# Output "0\n" 
 not_palindrome:
-    li a7, 64
-    li a0, 1
-    la a1, no_msg
-    li a2, 3
+    li   a7, 64
+    li   a0, 1
+    la   a1, zero_msg
+    li   a2, 2                  # length of "0\n"
     ecall
 
-# Exit program 
+# Exit 
 exit:
-    li a7, 93
-    li a0, 0
+    li   a7, 93
+    li   a0, 0
     ecall
